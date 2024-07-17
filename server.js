@@ -94,7 +94,7 @@ app.post('/forgot-password', async (req, res) => {
             { expiresIn: '1h' }
         );
 
-        const resetLink = `http://localhost:5173/reset-password?token=${token}`;
+        const resetLink = `https://adminsure.online/reset-password?token=${token}`;
 
         let transporter = nodemailer.createTransport({
             service: 'gmail',
