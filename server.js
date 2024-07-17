@@ -17,9 +17,9 @@ const SECRET_KEY = process.env.SECRET_KEY || 'your_secret_key';
 app.use(bodyParser.json());
 
 app.post('/register', async (req, res) => {
-    const { username, password, email } = req.body;
-    if (!username || !password || !email) {
-        return res.status(400).json({ message: 'Username, password, and email are required' });
+    const { username, password, email, firstName, lastName, phone } = req.body;
+    if (!username || !password || !email || !firstName || !lastName || !phone) {
+        return res.status(400).json({ message: 'Username, password, email, firstname, lastname, phone are required ' });
     }
 
     try {
@@ -31,8 +31,8 @@ app.post('/register', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const insertQuery = 'INSERT INTO users (username, password, email) VALUES (?, ?, ?)';
-        await pool.query(insertQuery, [username, hashedPassword, email]);
+        const insertQuery = 'INSERT INTO users (username, password, email, firstName, lastName, phone) VALUES (?, ?, ?, ?, ?, ?)';
+        await pool.query(insertQuery, [username, hashedPassword, email, firstName, lastName, phone]);
         
         console.log('User registered successfully');
         res.status(201).json({ message: 'User registered successfully' });
@@ -62,13 +62,22 @@ app.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Invalid username or password' });
         }
 
-        const token = jwt.sign({ userId: user.id }, SECRET_KEY, { expiresIn: '1h' });
-        res.json({ message: 'Login successful', token });
+        const token = jwt.sign({ userId: user.id }, process.env.SECRET_KEY, { expiresIn: '1h' });
+
+        // ส่งกลับข้อมูลผู้ใช้รวมถึง token
+        res.json({
+            message: 'Login successful',
+            token,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            phoneNumber: user.phone
+        });
     } catch (err) {
         console.error('Server error:', err);
         res.status(500).json({ message: 'Error processing your request', error: err.message });
     }
 });
+
 
 app.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
@@ -96,10 +105,10 @@ app.post('/forgot-password', async (req, res) => {
         });
 
         let mailOptions = {
-            from: `"Your Company Name" <${process.env.GMAIL_USER}>`,
+            from: `"asminsure.online" <${process.env.GMAIL_USER}>`,
             to: email,
             subject: 'Reset your password',
-            html: `<p>Click <a href="${resetLink}">here</a> to reset your password. This link will expire in 1 hour.</p>`
+            html: `<p>กรุณาคลิก <a href="${resetLink}">ที่นี่</a> เพื่อตั้งรหัสผ่านใหม่ ลิงก์นี้จะหมดอายุภายใน 1 ชั่วโมง</p>`
         };
 
         transporter.sendMail(mailOptions, (error, info) => {
@@ -135,12 +144,39 @@ app.post('/update-password', async (req, res) => {
     }
 });
 
-// The "catchall" handler: for any request that doesn't match one above, send back React's index.html file.
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/build/index.html'));
+
+// Middleware สำหรับการตรวจสอบ JWT
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // "Bearer TOKEN_HERE"
+
+    if (token == null) return res.sendStatus(401); // ถ้าไม่มี token ส่ง 401 Unauthorized
+
+    jwt.verify(token, process.env.SECRET_KEY, (err, user) => {
+        if (err) return res.sendStatus(403); // ส่ง 403 Forbidden ถ้า token ไม่ถูกต้อง
+        req.user = user; // เก็บข้อมูล user ที่ได้จาก token ไว้ใน req.user
+        next(); // ดำเนินการต่อ
+    });
+};
+
+
+app.get('/api/user', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId; // ดึง userId จากข้อมูลที่อยู่ใน token
+        const query = 'SELECT firstname, lastname, phone FROM users WHERE id = ?';
+        const [results] = await pool.query(query, [userId]);
+
+        if (results.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const user = results[0];
+        res.status(200).json(user);
+    } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).json({ message: 'Error fetching user' });
+    }
 });
-
-
 
 
 app.get('/', (req, res) => {
